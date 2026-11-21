@@ -304,17 +304,16 @@ body {
 
 .ticket-body {
   flex: 1;
-  padding: 14px 8px 14px 14px;
+  padding: 14px 8px 14px 22px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 .ticket-main {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
-  max-width: 100%;
 }
 .region-chip {
   display: inline-block;
@@ -329,18 +328,19 @@ body {
 .station-name {
   font-family: "Shippori Mincho", serif;
   font-weight: 700;
-  font-size: 17px;
+  font-size: 16px;
   line-height: 1.25;
   color: #22362c;
-  letter-spacing: -0.02em;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: clip;
+  text-overflow: ellipsis;
 }
 .ticket-side {
   text-align: right;
   flex: 0 0 auto;
-  max-width: 40%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
 }
 .distance-readout {
   font-family: "Zen Kaku Gothic New", sans-serif;
@@ -517,11 +517,6 @@ body {
 
   .tickets-grid {
     grid-template-columns: repeat(2, 1fr);
-  }
-
-  /* 駅名は1行固定のまま、PCでも同じサイズにそろえる */
-  .station-name {
-    font-size: 17px;
   }
 }
 
