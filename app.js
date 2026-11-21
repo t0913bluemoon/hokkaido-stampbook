@@ -1,7 +1,6 @@
 const { useState, useEffect, useRef, useCallback } = React;
 
 // ---- ローカルストレージ用の簡易シム(window.storage互換) -------------------
-// GitHub Pages等、通常のブラウザ環境で動かすための永続化レイヤー。
 window.storage = {
   async get(key) {
     const v = localStorage.getItem(key);
@@ -14,7 +13,7 @@ window.storage = {
   },
 };
 
-// ---- アイコン(lucide-reactの代わりの簡易SVGアイコン) -----------------------
+// ---- アイコン(簡易SVG) -----------------------------------------------------
 function IconNavigation({ size = 16, color = "currentColor", className }) {
   return (
     <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -50,9 +49,7 @@ function IconX({ size = 16, color = "currentColor" }) {
   );
 }
 
-// ---- 駅データ(プリセット) ------------------------------------------------
-// 座標はおおよその駅舎位置。実際のGPS精度により誤差が出るため、
-// 判定半径(STAMP_RADIUS_M)には余裕を持たせています。
+// ---- 路線の色 ----------------------------------------------------------------
 const LINES = {
   函館本線: "#3A4F7A",
   室蘭本線: "#B5502E",
@@ -66,6 +63,7 @@ const LINES = {
   カスタム: "#4E8098",
 };
 
+// ---- 駅データ(プリセット) ---------------------------------------------------
 const STATIONS = [
   { id: "sapporo", name: "札幌", region: "函館本線", lat: 43.0686, lng: 141.3508 },
   { id: "otaru", name: "小樽", region: "函館本線", lat: 43.1907, lng: 140.9947 },
@@ -108,7 +106,9 @@ const STATIONS = [
 
 const STAMP_RADIUS_M = 500; // この距離以内でスタンプ可能
 const STORAGE_KEY = "hokkaido-stampbook:data";
-const STAMP_INK = "#2d4a3e"; // スタンプの色(深緑)
+const CUSTOM_KEY = "hokkaido-stampbook:custom";
+const STAMP_INK = "#2d4a3e";
+const NAME_MAX = 20;
 
 // ---- ユーティリティ ---------------------------------------------------
 function distanceMeters(lat1, lon1, lat2, lon2) {
@@ -155,11 +155,29 @@ function hashRotation(id) {
   return (h % 27) - 13; // -13 〜 13度
 }
 
+// 入力欄の文字列を数値にする(空欄や数字以外はNaN)
+function parseCoord(str) {
+  const t = str.trim();
+  if (!t) return NaN;
+  return Number(t);
+}
+
+// 保存されていた自分の駅データが正しい形かを確認する
+function isValidCustomStation(s) {
+  return (
+    s &&
+    typeof s.id === "string" &&
+    typeof s.name === "string" &&
+    typeof s.region === "string" &&
+    Number.isFinite(s.lat) &&
+    Number.isFinite(s.lng) &&
+    s.isCustom === true
+  );
+}
+
 // ---- 硬券スタンプ本体(SVG) ------------------------------------------
-// 駅名を中央に大きく配置した丸印。日付は下部に分けて表示する。
 function StampMark({ uid, name, dateLabel, rotation }) {
   const filterId = `ink-${uid}`;
-  // 駅名の長さに応じて文字サイズを調整
   const nameSize =
     name.length <= 4 ? 15 : name.length <= 6 ? 12 : name.length <= 9 ? 9 : 7;
 
@@ -223,8 +241,8 @@ function StampMark({ uid, name, dateLabel, rotation }) {
   );
 }
 
-// ---- きっぷカード(未収集/収集済で共通利用) --------------------------------
-function TicketCard({ station, onDelete, onStamp }) {
+// ---- きっぷカード ----------------------------------------------------------
+function TicketCard({ station, onStamp, onDelete }) {
   const s = station;
   const inRange = s.distance != null && s.distance <= STAMP_RADIUS_M;
 
@@ -232,14 +250,14 @@ function TicketCard({ station, onDelete, onStamp }) {
     return (
       <div className="ticket ticket--stamped">
         {s.isCustom && (
-          <button className="delete-btn" onClick={() => onDelete(s.id)}>
+          <button className="delete-btn" aria-label="この駅を削除" onClick={() => onDelete(s.id)}>
             <IconX size={12} />
           </button>
         )}
         <div className="ticket-stub" />
         <div className="ticket-body">
           <div className="ticket-main">
-            <span className="region-chip" style={{ background: LINES[s.region] }}>
+            <span className="region-chip" style={{ background: LINES[s.region] || LINES["カスタム"] }}>
               {s.region}
             </span>
             <div className="station-name">{s.name}</div>
@@ -263,14 +281,14 @@ function TicketCard({ station, onDelete, onStamp }) {
   return (
     <div className="ticket">
       {s.isCustom && (
-        <button className="delete-btn" onClick={() => onDelete(s.id)}>
+        <button className="delete-btn" aria-label="この駅を削除" onClick={() => onDelete(s.id)}>
           <IconX size={12} />
         </button>
       )}
       <div className="ticket-stub" />
       <div className="ticket-body">
         <div className="ticket-main">
-          <span className="region-chip" style={{ background: LINES[s.region] }}>
+          <span className="region-chip" style={{ background: LINES[s.region] || LINES["カスタム"] }}>
             {s.region}
           </span>
           <div className="station-name">{s.name}</div>
@@ -297,42 +315,45 @@ function TicketCard({ station, onDelete, onStamp }) {
 
 function StationStampBook() {
   const [stamps, setStamps] = useState({}); // { [stationId]: { stampedAt, lat, lng } }
-  const [customStations, setCustomStations] = useState([]); // 自分で追加した駅・地点
-  const [storageState, setStorageState] = useState("loading"); // loading | ready | error
-  const [position, setPosition] = useState(null); // { lat, lng, accuracy }
-  const [geoStatus, setGeoStatus] = useState("idle"); // idle | watching | denied | error | unsupported | timeout
+  const [customStations, setCustomStations] = useState([]); // 自分で追加した駅
+  const [position, setPosition] = useState(null);
+  const [geoStatus, setGeoStatus] = useState("idle");
   const [showDemo, setShowDemo] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [customName, setCustomName] = useState("");
-  const [manualMode, setManualMode] = useState(false);
-  const [manualLat, setManualLat] = useState("");
-  const [manualLng, setManualLng] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newRegion, setNewRegion] = useState("カスタム");
+  const [newLat, setNewLat] = useState("");
+  const [newLng, setNewLng] = useState("");
+  const [addError, setAddError] = useState("");
   const watchIdRef = useRef(null);
   const positionRef = useRef(null);
 
-  // 保存データの読み込み
+  // 保存データの読み込み(登録されていない駅のスタンプは除外する)
   useEffect(() => {
-    let cancelled = false;
     (async () => {
+      let customs = [];
       try {
-        const result = await window.storage.get(STORAGE_KEY, false);
-        if (!cancelled) {
-          const parsed = result ? JSON.parse(result.value) : { stamps: {}, customStations: [] };
-          setStamps(parsed.stamps || {});
-          setCustomStations(parsed.customStations || []);
-          setStorageState("ready");
-        }
+        const r = await window.storage.get(CUSTOM_KEY, false);
+        const arr = r ? JSON.parse(r.value) : [];
+        customs = Array.isArray(arr) ? arr.filter(isValidCustomStation) : [];
       } catch (e) {
-        if (!cancelled) {
-          setStamps({});
-          setCustomStations([]);
-          setStorageState("ready"); // キー未作成時はエラーになるため空扱いで続行
-        }
+        customs = [];
+      }
+      setCustomStations(customs);
+
+      const validIds = new Set([...STATIONS, ...customs].map((s) => s.id));
+      try {
+        const r = await window.storage.get(STORAGE_KEY, false);
+        const parsed = r ? JSON.parse(r.value) : {};
+        const cleaned = {};
+        Object.entries(parsed.stamps || {}).forEach(([id, value]) => {
+          if (validIds.has(id)) cleaned[id] = value;
+        });
+        setStamps(cleaned);
+      } catch (e) {
+        setStamps({});
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   // 位置情報の監視開始
@@ -371,13 +392,17 @@ function StationStampBook() {
     };
   }, []);
 
-  const persist = useCallback(async (stampsObj, customArr) => {
+  const persistStamps = useCallback(async (stampsObj) => {
     try {
-      await window.storage.set(
-        STORAGE_KEY,
-        JSON.stringify({ stamps: stampsObj, customStations: customArr }),
-        false
-      );
+      await window.storage.set(STORAGE_KEY, JSON.stringify({ stamps: stampsObj }), false);
+    } catch (e) {
+      console.error("save failed", e);
+    }
+  }, []);
+
+  const persistCustom = useCallback(async (customArr) => {
+    try {
+      await window.storage.set(CUSTOM_KEY, JSON.stringify(customArr), false);
     } catch (e) {
       console.error("save failed", e);
     }
@@ -394,49 +419,59 @@ function StationStampBook() {
       },
     };
     setStamps(next);
-    persist(next, customStations);
+    persistStamps(next);
   };
 
-  const handleAddCustomStation = () => {
-    if (!customName.trim()) return;
-    let lat, lng;
-    if (manualMode) {
-      lat = parseFloat(manualLat);
-      lng = parseFloat(manualLng);
-      if (Number.isNaN(lat) || Number.isNaN(lng)) return;
-    } else {
-      if (!position) return;
-      lat = position.lat;
-      lng = position.lng;
+  const handleAddStation = () => {
+    const name = newName.trim();
+    const lat = parseCoord(newLat);
+    const lng = parseCoord(newLng);
+
+    if (!name) {
+      setAddError("駅名を入力してください");
+      return;
     }
-    const id = `custom-${Date.now()}`;
-    const next = [
-      ...customStations,
-      {
-        id,
-        name: customName.trim(),
-        region: "カスタム",
-        lat,
-        lng,
-        isCustom: true,
-      },
-    ];
+    if (name.length > NAME_MAX) {
+      setAddError(`駅名は${NAME_MAX}文字以内で入力してください`);
+      return;
+    }
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+      setAddError("緯度は-90〜90の数字で入力してください");
+      return;
+    }
+    if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+      setAddError("経度は-180〜180の数字で入力してください");
+      return;
+    }
+
+    const station = {
+      id: `custom-${Date.now().toString(36)}`,
+      name,
+      region: newRegion,
+      lat,
+      lng,
+      isCustom: true,
+    };
+    const next = [...customStations, station];
     setCustomStations(next);
-    persist(stamps, next);
-    setCustomName("");
-    setManualLat("");
-    setManualLng("");
+    persistCustom(next);
+
+    setNewName("");
+    setNewLat("");
+    setNewLng("");
+    setAddError("");
     setShowAddForm(false);
   };
 
-  const handleDeleteCustomStation = (id) => {
-    if (!window.confirm("この地点を削除しますか?押したスタンプも消えます。")) return;
+  const handleDeleteCustom = (id) => {
+    if (!window.confirm("この駅を削除しますか？押したスタンプも消えます。")) return;
     const nextCustom = customStations.filter((c) => c.id !== id);
     const nextStamps = { ...stamps };
     delete nextStamps[id];
     setCustomStations(nextCustom);
     setStamps(nextStamps);
-    persist(nextStamps, nextCustom);
+    persistCustom(nextCustom);
+    persistStamps(nextStamps);
   };
 
   const allStations = [...STATIONS, ...customStations];
@@ -479,69 +514,60 @@ function StationStampBook() {
               onClick={() => {
                 setShowAddForm((v) => !v);
                 setShowDemo(false);
+                setAddError("");
               }}
             >
-              {showAddForm ? "閉じる" : "＋ 自分の駅を追加"}
+              {showAddForm ? "閉じる" : "＋ 駅を追加"}
             </button>
           </div>
+
           {showAddForm && (
             <div className="add-form">
               <input
                 className="add-input"
                 type="text"
-                placeholder="駅・地点の名前(例: 散歩きっぷ 第1停留所)"
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
+                placeholder={`駅名(例: 白老) ${NAME_MAX}文字以内`}
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
               />
-              {!manualMode && (
-                <button
-                  className="add-confirm"
-                  disabled={!position || !customName.trim()}
-                  onClick={handleAddCustomStation}
-                >
-                  現在地で登録
-                </button>
-              )}
-              {!manualMode && !position && (
-                <div className="add-hint">
-                  現在地を取得中です。少し待ってから登録するか、下の「緯度経度を手動入力」をお試しください。
-                </div>
-              )}
-              <button className="manual-toggle" onClick={() => setManualMode((v) => !v)}>
-                {manualMode ? "現在地取得に戻す" : "緯度経度を手動入力する"}
+              <select
+                className="add-input"
+                value={newRegion}
+                onChange={(e) => setNewRegion(e.target.value)}
+              >
+                {Object.keys(LINES).map((line) => (
+                  <option key={line} value={line}>
+                    {line}
+                  </option>
+                ))}
+              </select>
+              <div className="manual-fields">
+                <input
+                  className="add-input manual-input"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="緯度 例: 42.5523"
+                  value={newLat}
+                  onChange={(e) => setNewLat(e.target.value)}
+                />
+                <input
+                  className="add-input manual-input"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder="経度 例: 141.1199"
+                  value={newLng}
+                  onChange={(e) => setNewLng(e.target.value)}
+                />
+              </div>
+              <button className="add-confirm" onClick={handleAddStation}>
+                この座標で登録
               </button>
-              {manualMode && (
-                <div className="manual-fields">
-                  <input
-                    className="add-input manual-input"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="緯度 例: 43.0686"
-                    value={manualLat}
-                    onChange={(e) => setManualLat(e.target.value)}
-                  />
-                  <input
-                    className="add-input manual-input"
-                    type="text"
-                    inputMode="decimal"
-                    placeholder="経度 例: 141.3508"
-                    value={manualLng}
-                    onChange={(e) => setManualLng(e.target.value)}
-                  />
-                  <button
-                    className="add-confirm"
-                    disabled={
-                      !customName.trim() ||
-                      Number.isNaN(parseFloat(manualLat)) ||
-                      Number.isNaN(parseFloat(manualLng))
-                    }
-                    onClick={handleAddCustomStation}
-                  >
-                    この座標で登録
-                  </button>
-                  <div className="add-hint">
-                    地図アプリで場所を長押しすると出てくる緯度経度をコピーして貼り付けられます。
-                  </div>
+              <div className="add-hint">
+                地図アプリで駅を長押しすると、緯度経度が表示されます。それを貼り付けてください。
+              </div>
+              {addError && (
+                <div className="add-hint" style={{ color: "#bc3b2e" }}>
+                  {addError}
                 </div>
               )}
             </div>
@@ -554,7 +580,7 @@ function StationStampBook() {
             <div className="ticket-stub" />
             <div className="ticket-body">
               <div className="ticket-main">
-                <span className="region-chip" style={{ background: LINES["カスタム"] }}>
+                <span className="region-chip" style={{ background: LINES["函館本線"] }}>
                   サンプル
                 </span>
                 <div className="station-name">サンプル駅</div>
@@ -591,10 +617,7 @@ function StationStampBook() {
         {geoStatus === "timeout" && (
           <div className="geo-card warn">
             <IconAlert className="icon" size={16} color="#bc3b2e" />
-            <span>
-              位置情報の取得に時間がかかっています。端末の位置情報の許可設定をご確認いただくか、「＋
-              自分の駅を追加」内の緯度経度を手動入力からお試しください。
-            </span>
+            <span>位置情報の取得に時間がかかっています。端末の位置情報の許可設定をご確認ください。</span>
           </div>
         )}
         {geoStatus === "denied" && (
@@ -621,8 +644,8 @@ function StationStampBook() {
                   <TicketCard
                     key={s.id}
                     station={s}
-                    onDelete={handleDeleteCustomStation}
                     onStamp={handleStamp}
+                    onDelete={handleDeleteCustom}
                   />
                 ))}
               </div>
@@ -639,8 +662,8 @@ function StationStampBook() {
                   <TicketCard
                     key={s.id}
                     station={s}
-                    onDelete={handleDeleteCustomStation}
                     onStamp={handleStamp}
+                    onDelete={handleDeleteCustom}
                   />
                 ))}
               </div>
@@ -650,7 +673,7 @@ function StationStampBook() {
 
         <div className="footnote">
           <IconTrain size={12} style={{ verticalAlign: "-1px", marginRight: 4 }} />
-          駅座標はおおよその位置です。スマホのGPS精度により、実際に駅へ到着してもすぐに反映されない場合があります。データはこの端末にのみ保存されます。
+          駅座標はおおよその位置です。スマホのGPS精度により、実際に駅へ到着してもすぐに反映されない場合があります。追加した駅とスタンプは、この端末にのみ保存されます。
         </div>
       </div>
     </div>
