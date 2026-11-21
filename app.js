@@ -108,6 +108,7 @@ const STATIONS = [
 
 const STAMP_RADIUS_M = 500; // この距離以内でスタンプ可能
 const STORAGE_KEY = "hokkaido-stampbook:data";
+const STAMP_INK = "#2d4a3e"; // スタンプの色(深緑)
 
 // ---- ユーティリティ ---------------------------------------------------
 function distanceMeters(lat1, lon1, lat2, lon2) {
@@ -154,65 +155,65 @@ function hashRotation(id) {
   return (h % 27) - 13; // -13 〜 13度
 }
 
-function polarPoint(r, angleDeg) {
-  const a = ((angleDeg - 90) * Math.PI) / 180;
-  return { x: 50 + r * Math.cos(a), y: 50 + r * Math.sin(a) };
-}
-
 // ---- 硬券スタンプ本体(SVG) ------------------------------------------
+// 駅名を中央に大きく配置した丸印。日付は下部に分けて表示する。
 function StampMark({ uid, name, dateLabel, rotation }) {
-  const arcId = `arc-${uid}`;
   const filterId = `ink-${uid}`;
-  const ticks = Array.from({ length: 16 }, (_, i) => i * (360 / 16));
+  // 駅名の長さに応じて文字サイズを調整
+  const nameSize =
+    name.length <= 4 ? 15 : name.length <= 6 ? 12 : name.length <= 9 ? 9 : 7;
 
   return (
     <div className="stamp-mark-wrap" style={{ transform: `rotate(${rotation}deg)` }}>
-      <svg viewBox="0 0 100 100" width="74" height="74">
+      <svg viewBox="0 0 100 100" width="84" height="84">
         <defs>
-          <filter id={filterId} x="-30%" y="-30%" width="160%" height="160%">
+          <filter id={filterId} x="-10%" y="-10%" width="120%" height="120%">
             <feTurbulence
               type="fractalNoise"
-              baseFrequency="0.85"
+              baseFrequency="0.9"
               numOctaves="2"
               seed={Math.abs(rotation) + 3}
               result="noise"
             />
-            <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.6" />
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.8" />
           </filter>
-          <path id={arcId} d="M14,54 A38,38 0 0 1 86,54" fill="none" />
         </defs>
-        <g filter={`url(#${filterId})`} fill="none" stroke="#BC3B2E">
-          <circle cx="50" cy="50" r="45" strokeWidth="2.4" />
-          <circle cx="50" cy="50" r="37" strokeWidth="1" />
-          {ticks.map((angle, i) => {
-            const p1 = polarPoint(41, angle);
-            const p2 = polarPoint(44.5, angle);
-            return <line key={i} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} strokeWidth="1" />;
-          })}
+        <g filter={`url(#${filterId})`} fill="none" stroke={STAMP_INK}>
+          <circle cx="50" cy="50" r="46" strokeWidth="3" />
+          <circle cx="50" cy="50" r="41" strokeWidth="1" />
         </g>
-        <text fill="#BC3B2E" fontSize="9.5" fontFamily="'Shippori Mincho', serif" filter={`url(#${filterId})`}>
-          <textPath href={`#${arcId}`} startOffset="50%" textAnchor="middle">
-            {name}
-          </textPath>
-        </text>
         <text
           x="50"
-          y="55"
+          y="30"
           textAnchor="middle"
           fontFamily="'Zen Kaku Gothic New', sans-serif"
-          fontSize="8"
-          fill="#BC3B2E"
+          fontSize="7"
+          fill={STAMP_INK}
           filter={`url(#${filterId})`}
         >
           下車済
         </text>
         <text
           x="50"
-          y="67"
+          y="50"
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontFamily="'Shippori Mincho', serif"
+          fontWeight="700"
+          fontSize={nameSize}
+          fill={STAMP_INK}
+          filter={`url(#${filterId})`}
+        >
+          {name}
+        </text>
+        <text
+          x="50"
+          y="68"
           textAnchor="middle"
           fontFamily="'Zen Kaku Gothic New', sans-serif"
-          fontSize="5.5"
-          fill="#BC3B2E"
+          fontSize="7"
+          letterSpacing="0.5"
+          fill={STAMP_INK}
           filter={`url(#${filterId})`}
         >
           {dateLabel}
@@ -242,20 +243,19 @@ function TicketCard({ station, onDelete, onStamp }) {
               {s.region}
             </span>
             <div className="station-name">{s.name}</div>
-          </div>
-          <div className="ticket-side">
-            <div className="geo-mono" style={{ fontSize: 10.5 }}>
+            <div className="geo-mono" style={{ fontSize: 10.5, marginTop: 6 }}>
               {formatStampDate(s.stamp.stampedAt)}
             </div>
           </div>
+          <div className="stamp-slot">
+            <StampMark
+              uid={s.id}
+              name={s.name}
+              dateLabel={formatShortDate(s.stamp.stampedAt)}
+              rotation={hashRotation(s.id)}
+            />
+          </div>
         </div>
-        <div className="punch-hole" />
-        <StampMark
-          uid={s.id}
-          name={s.name}
-          dateLabel={formatShortDate(s.stamp.stampedAt)}
-          rotation={hashRotation(s.id)}
-        />
       </div>
     );
   }
@@ -285,7 +285,7 @@ function TicketCard({ station, onDelete, onStamp }) {
               </button>
             </>
           ) : (
-            <div className="in-range-tag" style={{ color: "#A79C82" }}>
+            <div className="in-range-tag" style={{ color: "#8a9c85" }}>
               —
             </div>
           )}
@@ -558,15 +558,14 @@ function StationStampBook() {
                   サンプル
                 </span>
                 <div className="station-name">サンプル駅</div>
-              </div>
-              <div className="ticket-side">
-                <div className="geo-mono" style={{ fontSize: 10.5 }}>
+                <div className="geo-mono" style={{ fontSize: 10.5, marginTop: 6 }}>
                   2026/08/03 14:12
                 </div>
               </div>
+              <div className="stamp-slot">
+                <StampMark uid="demo" name="サンプル駅" dateLabel="26.08.03" rotation={6} />
+              </div>
             </div>
-            <div className="punch-hole" />
-            <StampMark uid="demo" name="サンプル駅" dateLabel="26.08.03" rotation={6} />
           </div>
         )}
 
@@ -581,7 +580,7 @@ function StationStampBook() {
 
         {geoStatus === "watching" && (
           <div className="geo-card">
-            <IconNavigation className="icon" size={16} color="#8B5E34" />
+            <IconNavigation className="icon" size={16} color="#2d4a3e" />
             <span className="geo-mono">
               {position
                 ? `現在地取得中 (精度 ±${Math.round(position.accuracy)}m)`
@@ -591,7 +590,7 @@ function StationStampBook() {
         )}
         {geoStatus === "timeout" && (
           <div className="geo-card warn">
-            <IconAlert className="icon" size={16} color="#BC3B2E" />
+            <IconAlert className="icon" size={16} color="#bc3b2e" />
             <span>
               位置情報の取得に時間がかかっています。端末の位置情報の許可設定をご確認いただくか、「＋
               自分の駅を追加」内の緯度経度を手動入力からお試しください。
@@ -600,13 +599,13 @@ function StationStampBook() {
         )}
         {geoStatus === "denied" && (
           <div className="geo-card warn">
-            <IconAlert className="icon" size={16} color="#BC3B2E" />
+            <IconAlert className="icon" size={16} color="#bc3b2e" />
             <span>位置情報が許可されていません。ブラウザの設定から位置情報を許可してください。</span>
           </div>
         )}
         {(geoStatus === "error" || geoStatus === "unsupported") && (
           <div className="geo-card warn">
-            <IconAlert className="icon" size={16} color="#BC3B2E" />
+            <IconAlert className="icon" size={16} color="#bc3b2e" />
             <span>位置情報を取得できませんでした。屋外で電波の良い場所でお試しください。</span>
           </div>
         )}
