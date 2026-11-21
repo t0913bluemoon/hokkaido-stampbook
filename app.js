@@ -175,6 +175,31 @@ function isValidCustomStation(s) {
   );
 }
 
+// 駅名から座標を検索する(OpenStreetMap / Nominatim、北海道の範囲に絞る)
+async function lookupStationCoord(name) {
+  const q = `${name}駅 北海道`;
+  const url =
+    "https://nominatim.openstreetmap.org/search" +
+    "?format=json&limit=5&countrycodes=jp&bounded=1" +
+    "&viewbox=139.3,45.7,145.9,41.3" +
+    "&accept-language=ja" +
+    `&q=${encodeURIComponent(q)}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error("http " + res.status);
+  const data = await res.json();
+  if (!Array.isArray(data) || data.length === 0) return null;
+  // 鉄道の駅を優先し、なければ最初の結果を使う
+  const best =
+    data.find((d) => d.class === "railway" && d.type === "station") ||
+    data.find((d) => d.class === "railway") ||
+    data[0];
+  return {
+    lat: Number(best.lat),
+    lng: Number(best.lon),
+    label: best.display_name,
+  };
+}
+
 // ---- 硬券スタンプ本体(SVG) ------------------------------------------
 function StampMark({ uid, name, dateLabel, rotation }) {
   const filterId = `ink-${uid}`;
@@ -325,6 +350,8 @@ function StationStampBook() {
   const [newLat, setNewLat] = useState("");
   const [newLng, setNewLng] = useState("");
   const [addError, setAddError] = useState("");
+  const [lookupStatus, setLookupStatus] = useState(""); // "" | loading | found | notfound | error
+  const [lookupLabel, setLookupLabel] = useState("");
   const watchIdRef = useRef(null);
   const positionRef = useRef(null);
 
@@ -422,6 +449,32 @@ function StationStampBook() {
     persistStamps(next);
   };
 
+  // 駅名から座標を自動で入れる
+  const handleLookup = async () => {
+    const name = newName.trim();
+    if (!name) {
+      setAddError("先に駅名を入力してください");
+      return;
+    }
+    setAddError("");
+    setLookupStatus("loading");
+    setLookupLabel("");
+    try {
+      const r = await lookupStationCoord(name);
+      if (!r || !Number.isFinite(r.lat) || !Number.isFinite(r.lng)) {
+        setLookupStatus("notfound");
+        return;
+      }
+      setNewLat(r.lat.toFixed(6));
+      setNewLng(r.lng.toFixed(6));
+      setLookupLabel(r.label);
+      setLookupStatus("found");
+    } catch (e) {
+      console.error("lookup failed", e);
+      setLookupStatus("error");
+    }
+  };
+
   const handleAddStation = () => {
     const name = newName.trim();
     const lat = parseCoord(newLat);
@@ -436,11 +489,11 @@ function StationStampBook() {
       return;
     }
     if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
-      setAddError("緯度は-90〜90の数字で入力してください");
+      setAddError("緯度が正しくありません。「座標を検索」を押すか、数字で入力してください");
       return;
     }
     if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
-      setAddError("経度は-180〜180の数字で入力してください");
+      setAddError("経度が正しくありません。「座標を検索」を押すか、数字で入力してください");
       return;
     }
 
@@ -460,6 +513,8 @@ function StationStampBook() {
     setNewLat("");
     setNewLng("");
     setAddError("");
+    setLookupStatus("");
+    setLookupLabel("");
     setShowAddForm(false);
   };
 
@@ -515,6 +570,8 @@ function StationStampBook() {
                 setShowAddForm((v) => !v);
                 setShowDemo(false);
                 setAddError("");
+                setLookupStatus("");
+                setLookupLabel("");
               }}
             >
               {showAddForm ? "閉じる" : "＋ 駅を追加"}
@@ -528,7 +585,10 @@ function StationStampBook() {
                 type="text"
                 placeholder={`駅名(例: 白老) ${NAME_MAX}文字以内`}
                 value={newName}
-                onChange={(e) => setNewName(e.target.value)}
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  setLookupStatus("");
+                }}
               />
               <select
                 className="add-input"
@@ -541,6 +601,27 @@ function StationStampBook() {
                   </option>
                 ))}
               </select>
+
+              <button className="add-confirm" onClick={handleLookup} disabled={lookupStatus === "loading"}>
+                {lookupStatus === "loading" ? "検索中…" : "座標を検索"}
+              </button>
+
+              {lookupStatus === "found" && (
+                <div className="add-hint">
+                  見つかった場所: {lookupLabel}（違う場合は、下の緯度経度を直接修正してください）
+                </div>
+              )}
+              {lookupStatus === "notfound" && (
+                <div className="add-hint" style={{ color: "#bc3b2e" }}>
+                  見つかりませんでした。駅名を変えるか、緯度経度を直接入力してください。
+                </div>
+              )}
+              {lookupStatus === "error" && (
+                <div className="add-hint" style={{ color: "#bc3b2e" }}>
+                  検索に失敗しました。通信状況を確認するか、緯度経度を直接入力してください。
+                </div>
+              )}
+
               <div className="manual-fields">
                 <input
                   className="add-input manual-input"
@@ -559,12 +640,11 @@ function StationStampBook() {
                   onChange={(e) => setNewLng(e.target.value)}
                 />
               </div>
+
               <button className="add-confirm" onClick={handleAddStation}>
-                この座標で登録
+                この内容で登録
               </button>
-              <div className="add-hint">
-                地図アプリで駅を長押しすると、緯度経度が表示されます。それを貼り付けてください。
-              </div>
+
               {addError && (
                 <div className="add-hint" style={{ color: "#bc3b2e" }}>
                   {addError}
