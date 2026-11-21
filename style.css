@@ -304,15 +304,24 @@ body {
 
 .ticket-body {
   flex: 1;
-  padding: 14px 8px 14px 22px;
+  padding: 14px 12px 14px 22px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
+
+/* 未収集のきっぷ: 駅名を上、距離とボタンを下の2段にする */
+.ticket:not(.ticket--stamped) .ticket-body {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 8px;
+}
+
 .ticket-main {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
 }
 .region-chip {
@@ -328,19 +337,23 @@ body {
 .station-name {
   font-family: "Shippori Mincho", serif;
   font-weight: 700;
-  font-size: 16px;
+  font-size: 17px;
   line-height: 1.25;
   color: #22362c;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 距離・圏内の表示とボタンを並べる行 */
 .ticket-side {
-  text-align: right;
-  flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+  text-align: right;
+  min-width: 0;
 }
 .distance-readout {
   font-family: "Zen Kaku Gothic New", sans-serif;
@@ -360,15 +373,15 @@ body {
 }
 
 .stamp-btn {
-  margin-top: 6px;
+  margin: 0 0 0 auto;
   font-family: "Zen Kaku Gothic New", sans-serif;
   font-weight: 700;
-  font-size: 11px;
+  font-size: 12px;
   color: #f3f6ea;
   background: #2d4a3e;
   border: none;
   border-radius: 20px;
-  padding: 5px 10px;
+  padding: 6px 14px;
   white-space: nowrap;
   cursor: pointer;
   animation: pulse 1.8s infinite;
